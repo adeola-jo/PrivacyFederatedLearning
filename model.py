@@ -1,3 +1,8 @@
+"""
+Neural network model architecture module.
+Defines the convolutional neural network used for federated learning on MNIST data.
+"""
+
 import torch.nn as nn
 import torch.nn.functional as F
 

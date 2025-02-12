@@ -1,3 +1,9 @@
+"""
+Differential privacy utilities module.
+Provides functions for adding Gaussian noise and computing sensitivities
+to ensure privacy preservation in the federated learning process.
+"""
+
 import torch
 
 def add_noise(tensor, noise_scale):

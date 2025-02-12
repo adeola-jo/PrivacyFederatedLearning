@@ -1,3 +1,9 @@
+"""
+Main application module for the Privacy-Preserving Federated Learning Framework.
+Implements the Streamlit web interface and orchestrates the federated learning process.
+Provides interactive parameter configuration and real-time visualization of training progress.
+"""
+
 import streamlit as st
 import torch
 import numpy as np

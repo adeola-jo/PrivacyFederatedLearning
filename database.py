@@ -1,3 +1,9 @@
+"""
+Database module for experiment tracking.
+Provides SQLAlchemy models and utilities for storing and retrieving
+experiment configurations and training results.
+"""
+
 from sqlalchemy import create_engine, Column, Integer, Float, DateTime, String
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker

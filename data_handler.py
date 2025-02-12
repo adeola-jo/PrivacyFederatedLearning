@@ -1,3 +1,9 @@
+"""
+Data handling module for the federated learning framework.
+Provides utilities for loading and preprocessing the MNIST dataset
+for distributed training across multiple clients.
+"""
+
 import torch
 from torchvision import datasets, transforms
 

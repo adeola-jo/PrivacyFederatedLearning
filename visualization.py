@@ -1,3 +1,9 @@
+"""
+Visualization module for the federated learning framework.
+Provides functions for plotting training progress and privacy metrics
+using Plotly and Streamlit.
+"""
+
 import plotly.graph_objects as go
 import streamlit as st
 
