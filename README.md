@@ -32,3 +32,7 @@ A comprehensive framework for implementing privacy-preserving federated learning
 ## Technical Details
 
 The framework implements federated averaging (FedAvg) with differential privacy guarantees. Each client trains locally, and models are aggregated with noise addition for privacy preservation.
+
+
+## Iterative Project Development Process
+- Reconfigure the existing model you previously designed to fit into the task required now. 
