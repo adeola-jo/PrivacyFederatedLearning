@@ -51,7 +51,9 @@ if not st.session_state.data_loaded:
         st.session_state.data_loaded = True
 
 # Initialize model and federated learning
+#TODO: Link this up with the eisting network design
 model = SimpleConvNet()
+
 fl_system = FederatedLearning(
     model, 
     num_clients=num_clients,
