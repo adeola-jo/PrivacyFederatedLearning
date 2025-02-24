@@ -45,9 +45,8 @@ if 'data_loaded' not in st.session_state:
 
 if not st.session_state.data_loaded:
     with st.spinner("Loading MNIST dataset..."):
-        train_data, val_data, test_data = load_mnist_data()
+        train_data, test_data = load_mnist_data()
         st.session_state.train_data = train_data
-        st.session_state.val_data = val_data
         st.session_state.test_data = test_data
         st.session_state.data_loaded = True
 
@@ -88,7 +87,6 @@ if st.button("Start Training"):
         # Perform one round of federated learning
         round_accuracy, privacy_loss = fl_system.train_round(
             st.session_state.train_data,
-            st.session_state.val_data,
             st.session_state.test_data,
             local_epochs
         )
