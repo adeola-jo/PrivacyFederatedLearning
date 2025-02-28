@@ -1,4 +1,3 @@
-
 """
 Main application module for the Privacy-Preserving Federated Learning Framework.
 Implements the Streamlit web interface and orchestrates the federated learning process.
@@ -33,7 +32,7 @@ def calculate_privacy_loss(noise_scale, num_selected, total_clients):
     """Simple privacy loss calculation based on noise scale and client participation"""
     if noise_scale == 0:
         return float('inf')  # Infinite privacy loss when no noise
-    
+
     # Basic formula based on participation rate and noise scale
     participation_rate = num_selected / total_clients
     return participation_rate / (noise_scale ** 2)
@@ -86,9 +85,9 @@ tab1, tab2, tab3 = st.tabs(["Configuration", "Training", "Experiment Comparison"
 with tab1:
     st.header("Configuration")
     st.write("Configure the parameters for your federated learning experiment.")
-    
+
     col1, col2 = st.columns(2)
-    
+
     with col1:
         st.subheader("Basic Parameters")
         num_clients = st.slider("Number of Clients", 2, 10, 5, 
@@ -99,10 +98,10 @@ with tab1:
                             help="Number of global aggregation rounds")
         local_epochs = st.slider("Local Epochs", 1, 5, 2, 
                               help="Number of training epochs performed by each client")
-    
+
     with col2:
         st.subheader("Advanced Parameters")
-        
+
         # Privacy settings
         privacy_enabled = st.checkbox("Enable Differential Privacy", value=True, 
                                    help="Add noise to client updates to preserve privacy")
@@ -112,21 +111,21 @@ with tab1:
         noise_scale = st.slider("Noise Scale (σ)", 0.0, 1.0, 0.1, 
                              help="Standard deviation of Gaussian noise added (higher = more private)", 
                              disabled=not privacy_enabled)
-        
+
         # Data distribution settings
         non_iid_enabled = st.checkbox("Enable Non-IID Data", value=False, 
                                    help="Distribute data unevenly among clients")
         alpha = st.slider("Non-IID Degree (α)", 0.1, 5.0, 0.5, 
                        help="Concentration parameter for Dirichlet distribution (lower = more skewed)", 
                        disabled=not non_iid_enabled)
-        
+
         # Compression settings
         compression_enabled = st.checkbox("Enable Model Compression", value=False, 
                                        help="Compress model updates to reduce communication overhead")
         compression_ratio = st.slider("Compression Ratio", 0.1, 1.0, 0.5, 
                                    help="Fraction of model parameters to retain after compression", 
                                    disabled=not compression_enabled)
-    
+
     # Experiment description
     experiment_description = st.text_area("Experiment Description (optional)", 
                                        help="Add notes or details about this experiment for future reference")
@@ -135,7 +134,7 @@ with tab1:
 with tab2:
     st.header("Training")
     st.write("Run federated learning and monitor progress in real-time.")
-    
+
     # Load and preprocess data if not already done
     if 'data_loaded' not in st.session_state:
         st.session_state.data_loaded = False
@@ -148,10 +147,10 @@ with tab2:
             st.session_state.test_data = test_data
             st.session_state.data_loaded = True
             st.success("Dataset loaded successfully!")
-    
+
     # Initialize model and federated learning
     model = SimpleConvNet()
-    
+
     # Training section
     if st.button("Start Training"):
         # Create a new experiment configuration
@@ -166,45 +165,45 @@ with tab2:
             )
             db.add(experiment)
             db.commit()
-        
+
         # Create columns for metrics and visualization
         col1, col2 = st.columns(2)
-        
+
         with col1:
             # Create progress chart placeholder
             progress_chart = st.empty()
-            
+
             # Create metrics placeholders
             metrics_container = st.container()
-            
+
         with col2:
             # Create privacy metrics placeholder
             privacy_metrics = st.empty()
-            
+
             # Create log area
             log_area = st.empty()
-        
+
         # Initialize federated learning
+        federated_config = {
+            'client_fraction': client_fraction,
+            'num_rounds': num_rounds,
+            'local_epochs': local_epochs,
+            'privacy_budget': privacy_budget if privacy_enabled else float('inf'),
+            'noise_scale': noise_scale if privacy_enabled else 0.0,
+            'compression_ratio': compression_ratio if compression_enabled else 1.0
+        }
         fl = FederatedLearning(
             model=model,
-            train_data=st.session_state.train_data,
-            val_data=st.session_state.val_data,
-            test_data=st.session_state.test_data,
             num_clients=num_clients,
-            client_fraction=client_fraction,
-            num_rounds=num_rounds,
-            local_epochs=local_epochs,
-            privacy_budget=privacy_budget if privacy_enabled else float('inf'),
-            noise_scale=noise_scale if privacy_enabled else 0.0,
-            compression_ratio=compression_ratio if compression_enabled else 1.0
+            config=federated_config
         )
-        
+
         # Train the model
-        for round_idx, metrics in enumerate(fl.train()):
+        for round_idx, metrics in enumerate(fl.train(st.session_state.train_data, st.session_state.val_data, st.session_state.test_data)):
             # Update progress chart
             with progress_chart:
                 plot_training_progress(metrics['round_history'])
-            
+
             # Update metrics
             with metrics_container:
                 cols = st.columns(4)
@@ -212,14 +211,14 @@ with tab2:
                 cols[1].metric("Accuracy", f"{metrics['accuracy']:.2f}%")
                 cols[2].metric("Loss", f"{metrics['loss']:.4f}")
                 cols[3].metric("Privacy Loss", f"{metrics['privacy_loss']:.2f}" if privacy_enabled else "N/A")
-            
+
             # Update privacy metrics
             with privacy_metrics:
                 if privacy_enabled:
                     plot_privacy_metrics(metrics['round_history'])
                 else:
                     st.info("Privacy metrics not available (Differential Privacy is disabled)")
-            
+
             # Update log
             with log_area:
                 st.text_area("Training Log", 
@@ -228,24 +227,24 @@ with tab2:
                                   f"Loss: {metrics['loss']:.4f}\n"
                                   f"Privacy Loss: {metrics['privacy_loss']:.2f}" if privacy_enabled else "N/A",
                             height=200)
-        
+
         # Final evaluation
         st.header("Final Evaluation")
-        test_accuracy = fl.evaluate()
+        test_accuracy = fl.evaluate(st.session_state.test_data)
         st.success(f"Final test accuracy: {test_accuracy:.2f}%")
-        
+
         # Display sample predictions
         st.subheader("Sample Predictions")
         display_sample_predictions(model, st.session_state.test_data)
-        
+
         # Save experiment results
         st.success("Training complete! Results saved to database.")
-    
+
     # Display previous experiments
     st.subheader("Previous Experiments")
     with get_session() as db:
         experiments = db.query(ExperimentConfig).order_by(ExperimentConfig.timestamp.desc()).limit(5).all()
-        
+
         if experiments:
             for exp in experiments:
                 with st.expander(f"Experiment from {exp.timestamp}"):
@@ -261,6 +260,6 @@ with tab2:
 with tab3:
     st.header("Experiment Comparison")
     st.write("Compare results from different experiments to analyze performance and privacy trade-offs.")
-    
+
     # Display experiment comparison
     display_experiment_comparison()
