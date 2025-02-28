@@ -10,7 +10,11 @@ import numpy as np
 from data_handler import load_mnist_data
 from federated_learning import FederatedLearning
 from model import SimpleConvNet
-from visualization import plot_training_progress, plot_privacy_metrics
+from visualization import (
+    create_training_progress_chart, create_privacy_metrics_chart,
+    update_training_progress, update_privacy_metrics,
+    display_experiment_comparison
+)
 from differential_privacy import add_noise
 from database import TrainingRound, ExperimentConfig, get_db
 from sqlalchemy.orm import Session
@@ -226,85 +230,109 @@ else:
 
 feature_status.markdown("### Enabled Features:\n" + "\n".join(feature_text))
 
-# Training
-if st.button("Start Training"):
-    # Save experiment configuration
-    with get_session() as db:
-        config = ExperimentConfig(
-            num_clients=num_clients,
-            num_rounds=num_rounds,
-            local_epochs=local_epochs,
-            privacy_budget=privacy_budget,
-            noise_scale=noise_scale,
-            description=experiment_description
-        )
-        db.add(config)
-        db.commit()
+# Create tabs for training and comparison
+tab1, tab2 = st.tabs(["Training", "Experiment Comparison"])
 
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-
-    # Metrics storage
-    federated_accuracies = []
-    privacy_losses = []
-
-    for round_idx in range(num_rounds):
-        # Perform one round of federated learning with new features
-        round_accuracy, privacy_loss = fl_system.train_round(
-            st.session_state.train_data,
-            st.session_state.val_data,
-            st.session_state.test_data,
-            local_epochs,
-            client_fraction=client_fraction
-        )
-
-        federated_accuracies.append(round_accuracy)
-        privacy_losses.append(privacy_loss)
-
-        # Save round results
+with tab1:
+    # Training
+    if st.button("Start Training"):
+        # Save experiment configuration
         with get_session() as db:
-            round_data = TrainingRound(
-                round_number=round_idx + 1,
-                accuracy=round_accuracy,
-                privacy_loss=privacy_loss,
+            config = ExperimentConfig(
                 num_clients=num_clients,
+                num_rounds=num_rounds,
+                local_epochs=local_epochs,
                 privacy_budget=privacy_budget,
-                noise_scale=noise_scale
+                noise_scale=noise_scale,
+                description=experiment_description
             )
-            db.add(round_data)
+            db.add(config)
             db.commit()
 
-        # Update progress
-        progress = (round_idx + 1) / num_rounds
-        progress_bar.progress(progress)
-        status_text.text(f"Round {round_idx+1}/{num_rounds} - Accuracy: {round_accuracy:.2f}%")
+        progress_bar = st.progress(0)
+        status_text = st.empty()
 
-        # Plot progress
+        # Metrics storage
+        federated_accuracies = []
+        privacy_losses = []
+        
+        # Create static charts that will be updated
         col1, col2 = st.columns(2)
         with col1:
-            plot_training_progress(federated_accuracies)
+            acc_chart_placeholder = st.empty()
+            acc_fig = create_training_progress_chart()
+            acc_chart_placeholder.plotly_chart(acc_fig, use_container_width=True)
+            
         with col2:
-            plot_privacy_metrics(privacy_losses)
+            priv_chart_placeholder = st.empty()
+            priv_fig = create_privacy_metrics_chart()
+            priv_chart_placeholder.plotly_chart(priv_fig, use_container_width=True)
 
-    st.success("Training completed!")
+        for round_idx in range(num_rounds):
+            # Perform one round of federated learning with new features
+            round_accuracy, privacy_loss = fl_system.train_round(
+                st.session_state.train_data,
+                st.session_state.val_data,
+                st.session_state.test_data,
+                local_epochs,
+                client_fraction=client_fraction
+            )
 
-    # Final evaluation
-    final_accuracy = fl_system.evaluate(st.session_state.test_data)
-    st.metric("Final Test Accuracy", f"{final_accuracy:.2f}%")
+            federated_accuracies.append(round_accuracy)
+            privacy_losses.append(privacy_loss)
 
-# Display previous experiments
-with get_session() as db:
-    st.subheader("Previous Experiments")
-    experiments = db.query(ExperimentConfig).order_by(ExperimentConfig.timestamp.desc()).limit(5).all()
+            # Save round results
+            with get_session() as db:
+                round_data = TrainingRound(
+                    round_number=round_idx + 1,
+                    accuracy=round_accuracy,
+                    privacy_loss=privacy_loss,
+                    num_clients=num_clients,
+                    privacy_budget=privacy_budget,
+                    noise_scale=noise_scale
+                )
+                db.add(round_data)
+                db.commit()
 
-    if experiments:
-        for exp in experiments:
-            with st.expander(f"Experiment from {exp.timestamp}"):
-                st.write(f"Clients: {exp.num_clients}")
-                st.write(f"Rounds: {exp.num_rounds}")
-                st.write(f"Privacy Budget: {exp.privacy_budget}")
-                if exp.description:
-                    st.write(f"Description: {exp.description}")
+            # Update progress
+            progress = (round_idx + 1) / num_rounds
+            progress_bar.progress(progress)
+            status_text.text(f"Round {round_idx+1}/{num_rounds} - Accuracy: {round_accuracy:.2f}%")
+
+            # Update the static charts with new data
+            acc_fig = update_training_progress(acc_fig, federated_accuracies)
+            acc_chart_placeholder.plotly_chart(acc_fig, use_container_width=True)
+            
+            priv_fig = update_privacy_metrics(priv_fig, privacy_losses)
+            priv_chart_placeholder.plotly_chart(priv_fig, use_container_width=True)
+
+        st.success("Training completed!")
+
+        # Final evaluation
+        final_accuracy = fl_system.evaluate(st.session_state.test_data)
+        st.metric("Final Test Accuracy", f"{final_accuracy:.2f}%")
+
+    # Display previous experiments
+    with get_session() as db:
+        st.subheader("Recent Experiments")
+        experiments = db.query(ExperimentConfig).order_by(ExperimentConfig.timestamp.desc()).limit(5).all()
+
+        if experiments:
+            for exp in experiments:
+                with st.expander(f"Experiment from {exp.timestamp}"):
+                    st.write(f"Clients: {exp.num_clients}")
+                    st.write(f"Rounds: {exp.num_rounds}")
+                    st.write(f"Local Epochs: {exp.local_epochs}")
+                    st.write(f"Privacy Budget: {exp.privacy_budget}")
+                    st.write(f"Noise Scale: {exp.noise_scale}")
+                    if exp.description:
+                        st.write(f"Description: {exp.description}")
+        else:
+            st.info("No recent experiments found. Start a training session to see results.")
+
+with tab2:
+    # Use the comparison function from visualization.py
+    display_experiment_comparison()
 
 # Add information about the framework
 st.markdown("""
