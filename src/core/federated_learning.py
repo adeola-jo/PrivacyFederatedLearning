@@ -319,3 +319,50 @@ class FederatedLearning:
 
         accuracy = 100 * correct / total
         return accuracy
+        
+    def train(self, train_data, val_data, test_data):
+        """
+        Train the model for multiple rounds of federated learning.
+        
+        Args:
+            train_data: Training dataset
+            val_data: Validation dataset
+            test_data: Test dataset
+            
+        Yields:
+            Dictionary with metrics for each round
+        """
+        round_history = []
+        num_rounds = self.config.get('num_rounds', 10)
+        local_epochs = self.config.get('local_epochs', 1)
+        client_fraction = self.config.get('client_fraction', 1.0)
+        
+        for round_idx in range(num_rounds):
+            # Train for one round
+            accuracy, privacy_loss = self.train_round(
+                train_data, 
+                val_data, 
+                test_data, 
+                local_epochs=local_epochs,
+                client_fraction=client_fraction
+            )
+            
+            # Calculate loss (dummy value, replace with actual loss calculation if available)
+            loss = 1.0 - (accuracy / 100.0)
+            
+            # Store metrics
+            round_metrics = {
+                'round': round_idx + 1,
+                'accuracy': accuracy,
+                'loss': loss,
+                'privacy_loss': privacy_loss
+            }
+            round_history.append(round_metrics)
+            
+            # Yield current metrics
+            yield {
+                'round_history': round_history,
+                'accuracy': accuracy,
+                'loss': loss,
+                'privacy_loss': privacy_loss
+            }
