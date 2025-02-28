@@ -12,7 +12,7 @@ author = 15749103
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "streamlit run main.py -- --server.address=0.0.0.0 --server.port=8501"
+args = "streamlit run src/ui/main.py -- --server.address=0.0.0.0 --server.port=8501"
 
 [[ports]]
 localPort = 5000
