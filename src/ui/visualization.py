@@ -331,3 +331,56 @@ def display_sample_predictions(model, test_data, num_samples=5):
     buf.seek(0)
     st.image(buf, use_column_width=True)
     plt.close(fig)
+def display_sample_predictions(model, test_data, num_samples=10):
+    """
+    Display sample predictions from the model on test data
+    
+    Args:
+        model: The trained model
+        test_data: Test dataset
+        num_samples: Number of samples to display
+    """
+    if not test_data:
+        st.warning("Test data not available")
+        return
+        
+    # Use matplotlib for image display
+    import matplotlib.pyplot as plt
+    
+    # Set model to evaluation mode
+    model.eval()
+    
+    # Get random samples
+    test_loader = torch.utils.data.DataLoader(test_data, batch_size=num_samples, shuffle=True)
+    images, labels = next(iter(test_loader))
+    
+    # Make predictions
+    with torch.no_grad():
+        outputs = model(images)
+        _, predicted = torch.max(outputs, 1)
+    
+    # Create a figure with subplots
+    fig, axes = plt.subplots(2, 5, figsize=(12, 6))
+    axes = axes.flatten()
+    
+    # Display images with predictions
+    for i in range(num_samples):
+        # Convert image for display
+        img = images[i].squeeze().numpy()
+        
+        # Display the image
+        axes[i].imshow(img, cmap='gray')
+        
+        # Set title with prediction and actual label
+        prediction = predicted[i].item()
+        actual = labels[i].item()
+        color = 'green' if prediction == actual else 'red'
+        axes[i].set_title(f"Pred: {prediction}\nTrue: {actual}", color=color)
+        
+        # Remove axis ticks
+        axes[i].set_xticks([])
+        axes[i].set_yticks([])
+    
+    # Adjust layout and display
+    plt.tight_layout()
+    st.pyplot(fig)
