@@ -7,7 +7,6 @@ using Plotly and Streamlit.
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import matplotlib.pyplot as plt
 import torch
 import numpy as np
 from typing import List, Dict, Any, Tuple, Optional
@@ -381,6 +380,7 @@ def display_sample_predictions(model, test_data, num_samples=10):
         axes[i].set_xticks([])
         axes[i].set_yticks([])
     
-    # Adjust layout and display
-    plt.tight_layout()
-    st.pyplot(fig)
+    # Use Plotly for all visualizations
+    fig = px.imshow(img_grid, facet_col=0, facet_col_wrap=5)
+    fig.update_layout(height=400)
+    st.plotly_chart(fig, use_container_width=True)t(fig)
