@@ -112,10 +112,10 @@ if use_non_iid:
         )
         
         # Collect label distributions for visualization
-        import matplotlib.pyplot as plt
+        import plotly.graph_objects as go
         import numpy as np
         
-        fig, ax = plt.subplots(figsize=(10, 6))
+        fig = go.Figure()
         client_distributions = []
         
         for i, dataset in enumerate(client_datasets):
@@ -147,17 +147,35 @@ if use_non_iid:
             distribution[unique] = counts / counts.sum()
             client_distributions.append(distribution)
             
-            # Plot the distribution
-            ax.bar(np.arange(10) + i * 0.1, distribution, width=0.1, alpha=0.7, 
-                   label=f'Client {i+1}')
+            # Plot the distribution with Plotly
+            fig.add_trace(go.Bar(
+                x=np.arange(10),
+                y=distribution,
+                name=f'Client {i+1}',
+                opacity=0.7,
+                width=0.1,
+                offset=i * 0.1 - 0.5  # Center the bars
+            ))
         
-        ax.set_xlabel('Class Label')
-        ax.set_ylabel('Proportion')
-        ax.set_title('Data Distribution Across Clients')
-        ax.set_xticks(np.arange(10))
-        ax.legend()
+        fig.update_layout(
+            title='Data Distribution Across Clients',
+            xaxis_title='Class Label',
+            yaxis_title='Proportion',
+            xaxis=dict(
+                tickmode='linear',
+                tick0=0,
+                dtick=1
+            ),
+            legend=dict(
+                yanchor="top",
+                y=0.99,
+                xanchor="left",
+                x=0.01
+            ),
+            height=500
+        )
         
-        st.pyplot(fig)
+        st.plotly_chart(fig, use_container_width=True)
 else:
     feature_text.append("❌ Non-IID Data (using IID)")
 
@@ -201,25 +219,26 @@ if use_compression:
             st.metric("After Compression", f"{compressed_nonzeros:,}", 
                      delta=f"{-100 * (1 - compressed_nonzeros/original_nonzeros):.1f}%")
             
-        # Show size comparison bar chart
-        import matplotlib.pyplot as plt
-        fig, ax = plt.subplots(figsize=(8, 4))
-        bars = ax.bar(['Original', 'Compressed'], 
-                      [original_nonzeros, compressed_nonzeros],
-                      color=['royalblue', 'limegreen'])
-        ax.set_ylabel('Number of Non-Zero Parameters')
-        ax.set_title('Effect of Model Compression')
+        # Show size comparison bar chart with Plotly
+        import plotly.graph_objects as go
         
-        # Add value labels on top of bars
-        for bar in bars:
-            height = bar.get_height()
-            ax.annotate(f'{height:,}',
-                        xy=(bar.get_x() + bar.get_width() / 2, height),
-                        xytext=(0, 3),  # 3 points vertical offset
-                        textcoords="offset points",
-                        ha='center', va='bottom')
+        fig = go.Figure(data=[
+            go.Bar(
+                x=['Original', 'Compressed'],
+                y=[original_nonzeros, compressed_nonzeros],
+                marker_color=['royalblue', 'limegreen'],
+                text=[f'{original_nonzeros:,}', f'{compressed_nonzeros:,}'],
+                textposition='outside'
+            )
+        ])
         
-        st.pyplot(fig)
+        fig.update_layout(
+            title='Effect of Model Compression',
+            yaxis_title='Number of Non-Zero Parameters',
+            height=400
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
 else:
     feature_text.append("❌ Model Compression")
 
