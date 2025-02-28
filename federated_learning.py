@@ -58,6 +58,10 @@ class FederatedLearning:
         self.criterion = LossFactory.create(loss_type, **loss_params)
 
         # Initialize the global optimizer
+        # Use default lr_policy if not provided
+        if 'lr_policy' not in self.config:
+            self.config['lr_policy'] = {1: {'lr': 0.01}}
+            
         lr = self.config['lr_policy'][min(self.config['lr_policy'].keys())]['lr']
         optimizer_type = self.config.get('optimizer', 'sgd')
         optimizer_params = self.config.get('optimizer_params', {})
