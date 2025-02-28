@@ -79,7 +79,10 @@ config = {
     'non_iid': {
         'enabled': use_non_iid,
         'alpha': alpha
-    }
+    },
+    'batch_size': 64,
+    'device': 'cuda' if torch.cuda.is_available() else 'cpu',
+    'verbose': True
 }
 
 fl_system = FederatedLearning(
@@ -87,6 +90,31 @@ fl_system = FederatedLearning(
     num_clients=num_clients,
     config=config
 )
+
+# Display which features are enabled
+feature_status = st.empty()
+feature_text = []
+if use_non_iid:
+    feature_text.append(f"✅ Non-IID Data (α={alpha})")
+else:
+    feature_text.append("❌ Non-IID Data (using IID)")
+
+if client_fraction < 1.0:
+    feature_text.append(f"✅ Partial Client Participation ({int(client_fraction*100)}%)")
+else:
+    feature_text.append("❌ Partial Client Participation (using all clients)")
+
+if use_compression:
+    feature_text.append(f"✅ Model Compression (ratio={compression_ratio})")
+else:
+    feature_text.append("❌ Model Compression")
+
+if noise_scale > 0:
+    feature_text.append(f"✅ Differential Privacy (σ={noise_scale})")
+else:
+    feature_text.append("❌ Differential Privacy (no noise)")
+
+feature_status.markdown("### Enabled Features:\n" + "\n".join(feature_text))
 
 # Training
 if st.button("Start Training"):

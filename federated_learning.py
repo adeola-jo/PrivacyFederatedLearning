@@ -399,16 +399,13 @@ class FederatedLearning:
         Returns:
             torch.Tensor: The noisy tensor
         """
+        from differential_privacy import add_noise
+        
         if noise_scale <= 0:
             return tensor
-
-        # Generate noise with the same shape as the tensor
-        noise = torch.randn_like(tensor) * noise_scale
-
-        # Add noise to the tensor
-        noisy_tensor = tensor + noise
-
-        return noisy_tensor
+            
+        # Use the specialized add_noise function from differential_privacy module
+        return add_noise(tensor, noise_scale)
 
 
     def calculate_privacy_loss(self, privacy_budget, noise_scale, num_queries=1):
