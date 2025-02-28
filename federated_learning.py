@@ -177,7 +177,9 @@ class FederatedLearning:
                 train_loss += loss.item()
                 _, predicted = output.max(1)
                 total += target.size(0)
-                correct += predicted.eq(target).sum().item()
+                # Get the indices of the highest values in the target one-hot encoding
+                target_indices = torch.argmax(target, dim=1)
+                correct += predicted.eq(target_indices).sum().item()
 
                 # Print progress periodically
                 if verbose and batch_idx % 10 == 0:
@@ -382,7 +384,9 @@ class FederatedLearning:
                 test_loss += loss.item()
                 _, predicted = output.max(1)
                 total += target.size(0)
-                correct += predicted.eq(target).sum().item()
+                # Get the indices of the highest values in the target one-hot encoding
+                target_indices = torch.argmax(target, dim=1)
+                correct += predicted.eq(target_indices).sum().item()
 
         test_loss = test_loss / len(dataloader)
         accuracy = 100. * correct / total
@@ -469,7 +473,9 @@ class FederatedLearning:
                 val_loss += loss.item()
                 _, predicted = output.max(1)
                 total += target.size(0)
-                correct += predicted.eq(target).sum().item()
+                # Get the indices of the highest values in the target one-hot encoding
+                target_indices = torch.argmax(target, dim=1)
+                correct += predicted.eq(target_indices).sum().item()
 
         val_loss = val_loss / len(data_loader)
         val_acc = 100. * correct / total
