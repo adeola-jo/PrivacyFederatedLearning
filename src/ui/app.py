@@ -12,7 +12,7 @@ import plotly.express as px
 from pathlib import Path
 
 # Fix imports with relative imports
-from ..data.data_handler import load_mnist_data
+from src.data.data_handler import load_mnist_data
 from ..core.federated_learning import FederatedLearning
 from ..models.model import SimpleConvNet
 from ..ui.visualization import plot_training_progress, plot_privacy_metrics, display_sample_predictions
