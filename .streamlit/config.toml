@@ -1,8 +1,7 @@
 [server]
-headless = true
-enableCORS = false
-address = "0.0.0.0"
 port = 5000
+enableCORS = false
+enableXsrfProtection = false
 
-[global]
-developmentMode = false
+[browser]
+gatherUsageStats = true

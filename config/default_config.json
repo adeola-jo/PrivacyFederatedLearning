@@ -1,0 +1,32 @@
+{
+  "federated": {
+    "num_clients": 5,
+    "client_fraction": 0.6,
+    "num_rounds": 10,
+    "local_epochs": 2
+  },
+  "privacy": {
+    "enabled": true,
+    "noise_scale": 0.1,
+    "privacy_budget": 1.0
+  },
+  "non_iid": {
+    "enabled": false,
+    "alpha": 0.5
+  },
+  "compression": {
+    "enabled": false,
+    "ratio": 0.5
+  },
+  "training": {
+    "batch_size": 64,
+    "optimizer": "sgd",
+    "learning_rate": 0.01,
+    "weight_decay": 0.0001
+  },
+  "system": {
+    "seed": 42,
+    "device": "auto",
+    "verbose": true
+  }
+}
