@@ -77,7 +77,7 @@ def update_privacy_metrics(fig, privacy_losses):
     """Update the privacy metrics chart with new data"""
     fig.data[0].x = list(range(1, len(privacy_losses) + 1))
     fig.data[0].y = privacy_losses
-    return fig
+    return figg
 
 def display_experiment_comparison():
     """Display a comparison of all experiments"""
@@ -383,4 +383,4 @@ def display_sample_predictions(model, test_data, num_samples=10):
     # Use Plotly for all visualizations
     fig = px.imshow(img_grid, facet_col=0, facet_col_wrap=5)
     fig.update_layout(height=400)
-    st.plotly_chart(fig, use_container_width=True)t(fig)
+    st.plotly_chart(fig, use_container_width=True)
