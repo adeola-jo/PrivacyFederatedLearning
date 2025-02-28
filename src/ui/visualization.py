@@ -13,7 +13,7 @@ import numpy as np
 from typing import List, Dict, Any, Tuple, Optional
 
 # Fix imports with relative imports
-from ..utils.database import TrainingRound, ExperimentConfig, get_db
+from src.utils.database import TrainingRound, ExperimentConfig, get_db
 
 from sqlalchemy import desc
 from contextlib import contextmanager
