@@ -1,11 +1,10 @@
-
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import torch
 import numpy as np
-from differential_privacy import add_noise, compute_sensitivity
+from src.privacy.differential_privacy import add_noise, compute_sensitivity
 
 def test_add_noise():
     """Test adding Gaussian noise for differential privacy"""
