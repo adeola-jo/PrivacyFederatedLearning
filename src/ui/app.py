@@ -12,7 +12,12 @@ import pandas as pd
 import plotly.express as px
 from pathlib import Path
 
-# Use absolute imports with src prefix
+# Import with relative paths for direct Streamlit execution
+import sys
+import os
+# Add the project root to Python path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+# Now use the imports
 from src.data.data_handler import load_mnist_data
 from src.core.federated_learning import FederatedLearning
 from src.models.model import SimpleConvNet
