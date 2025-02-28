@@ -144,7 +144,7 @@ def get_db():
 import torch
 import numpy as np
 import torchvision
-from src.utils.database import get_db
+from ..utils.database import get_db
 
 
 def some_function():
