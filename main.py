@@ -30,36 +30,62 @@ def get_session():
 
 # Sidebar parameters
 st.sidebar.header("Parameters")
-num_clients = st.sidebar.slider("Number of Clients", 2, 5, 3)
+num_clients = st.sidebar.slider("Number of Clients", 2, 10, 5)
 num_rounds = st.sidebar.slider("Number of Federated Rounds", 1, 20, 10)
 local_epochs = st.sidebar.slider("Local Epochs", 1, 5, 2)
 privacy_budget = st.sidebar.slider("Privacy Budget (ε)", 0.1, 10.0, 1.0)
 noise_scale = st.sidebar.slider("Noise Scale (σ)", 0.0, 1.0, 0.1)
 
+# Advanced parameters
+st.sidebar.header("Advanced Parameters")
+client_fraction = st.sidebar.slider("Client Participation Fraction", 0.1, 1.0, 0.6, 0.1)
+use_non_iid = st.sidebar.checkbox("Use Non-IID Data Distribution", False)
+alpha = st.sidebar.slider("Non-IID Concentration (α)", 0.1, 5.0, 0.5, 
+                         help="Lower values create more skewed distributions across clients")
+use_compression = st.sidebar.checkbox("Use Model Compression", False)
+compression_ratio = st.sidebar.slider("Compression Ratio", 0.1, 1.0, 0.5, 0.1,
+                                     help="Fraction of model weights to keep")
+
 # Optional experiment description
 experiment_description = st.sidebar.text_area("Experiment Description (optional)")
 
 # Load and preprocess data
-if 'data_loaded' not in st.session_state:
+if 'data_loaded' not in st.session_state or st.session_state.use_non_iid != use_non_iid:
     st.session_state.data_loaded = False
+    st.session_state.use_non_iid = use_non_iid
 
 if not st.session_state.data_loaded:
-    with st.spinner("Loading MNIST dataset..."):
-        train_data, val_data, test_data = load_mnist_data()
+    with st.spinner(f"Loading MNIST dataset with {'non-IID' if use_non_iid else 'IID'} distribution..."):
+        train_data, val_data, test_data = load_mnist_data(iid=not use_non_iid)
         st.session_state.train_data = train_data
         st.session_state.val_data = val_data
         st.session_state.test_data = test_data
         st.session_state.data_loaded = True
 
 # Initialize model and federated learning
-#TODO: Link this up with the eisting network design
 model = SimpleConvNet()
+
+# Custom configuration with new parameters
+config = {
+    'privacy': {
+        'enabled': True,
+        'noise_scale': noise_scale,
+        'privacy_budget': privacy_budget
+    },
+    'compression': {
+        'enabled': use_compression,
+        'ratio': compression_ratio
+    },
+    'non_iid': {
+        'enabled': use_non_iid,
+        'alpha': alpha
+    }
+}
 
 fl_system = FederatedLearning(
     model, 
     num_clients=num_clients,
-    privacy_budget=privacy_budget,
-    noise_scale=noise_scale
+    config=config
 )
 
 # Training
@@ -85,12 +111,13 @@ if st.button("Start Training"):
     privacy_losses = []
 
     for round_idx in range(num_rounds):
-        # Perform one round of federated learning
+        # Perform one round of federated learning with new features
         round_accuracy, privacy_loss = fl_system.train_round(
             st.session_state.train_data,
             st.session_state.val_data,
             st.session_state.test_data,
-            local_epochs
+            local_epochs,
+            client_fraction=client_fraction
         )
 
         federated_accuracies.append(round_accuracy)

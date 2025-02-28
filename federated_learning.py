@@ -37,6 +37,49 @@ class FederatedLearning:
         # Set random seed for reproducibility
         if 'seed' in self.config:
             torch.manual_seed(self.config['seed'])
+
+    def compress_model(self, state_dict, compression_ratio=0.1):
+        """
+        Compress model weights by keeping only the largest magnitude values
+        
+        Args:
+            state_dict (dict): Model state dictionary
+            compression_ratio (float): Fraction of weights to keep (between 0 and 1)
+            
+        Returns:
+            dict: Compressed model state dictionary
+        """
+        compressed_state = {}
+        
+        for key, tensor in state_dict.items():
+            # Skip non-tensor values
+            if not isinstance(tensor, torch.Tensor) or 'running' in key or 'num_batches' in key:
+                compressed_state[key] = tensor
+                continue
+                
+            # Get the flat absolute values and find threshold
+            flat_tensor = tensor.abs().flatten()
+            if flat_tensor.numel() > 0:  # Check if tensor is not empty
+                num_values_to_keep = max(1, int(compression_ratio * flat_tensor.numel()))
+                # Get the threshold value for the top k elements
+                if num_values_to_keep < flat_tensor.numel():
+                    threshold = torch.kthvalue(flat_tensor, flat_tensor.numel() - num_values_to_keep + 1)[0]
+                else:
+                    threshold = 0.0
+                
+                # Create a mask for values to keep
+                mask = tensor.abs() >= threshold
+                
+                # Apply the mask, zeroing out small values
+                pruned_tensor = tensor.clone()
+                pruned_tensor[~mask] = 0
+                
+                compressed_state[key] = pruned_tensor
+            else:
+                compressed_state[key] = tensor
+                
+        return compressed_state
+
             np.random.seed(self.config['seed'])
             
         # Create client models
@@ -69,20 +112,28 @@ class FederatedLearning:
             **optimizer_params
         )
 
-    def distribute_data(self, dataset):
+    def distribute_data(self, dataset, use_non_iid=False, alpha=0.5):
         """
-        Split dataset among clients
+        Split dataset among clients, either IID or non-IID
         
         Args:
             dataset (torch.utils.data.Dataset): The dataset to distribute
+            use_non_iid (bool): Whether to use non-IID distribution
+            alpha (float): Dirichlet concentration parameter for non-IID distribution
+                           Lower values create more skewed distributions
             
         Returns:
             list: List of datasets, one for each client
         """
-        total_size = len(dataset)
-        indices = np.random.permutation(total_size)
-        client_data = np.array_split(indices, self.num_clients)
-        return [Subset(dataset, indices) for indices in client_data]
+        if use_non_iid:
+            from data_handler import distribute_data_non_iid
+            return distribute_data_non_iid(dataset, self.num_clients, alpha=alpha)
+        else:
+            # Original IID distribution
+            total_size = len(dataset)
+            indices = np.random.permutation(total_size)
+            client_data = np.array_split(indices, self.num_clients)
+            return [Subset(dataset, indices) for indices in client_data]
 
     def train_client(self, client_id, client_data, val_data, local_epochs):
         """
@@ -196,6 +247,21 @@ class FederatedLearning:
                       f"Train Acc: {train_acc:.2f}%, "
                       f"Val Loss: {val_loss:.4f}, "
                       f"Val Acc: {val_acc:.2f}%")
+
+    def select_clients(self, fraction=0.5, min_clients=1):
+        """
+        Select a subset of clients to participate in a training round
+        
+        Args:
+            fraction (float): Fraction of clients to select (between 0 and 1)
+            min_clients (int): Minimum number of clients to select
+            
+        Returns:
+            list: List of selected client indices
+        """
+        num_to_select = max(min_clients, int(self.num_clients * fraction))
+        return np.random.choice(range(self.num_clients), size=num_to_select, replace=False).tolist()
+
         
         return model.state_dict()
     
@@ -232,36 +298,52 @@ class FederatedLearning:
         
         return val_loss, val_acc
 
-    def aggregate_models(self, client_states):
+    def aggregate_models(self, client_states, use_compression=False, compression_ratio=0.1):
         """
         Aggregate client models using FedAvg with differential privacy
         
         Args:
             client_states (list): List of client model state dictionaries
+            use_compression (bool): Whether to use model compression
+            compression_ratio (float): Fraction of weights to keep if using compression
             
         Returns:
             dict: Aggregated model state dictionary
         """
+        # Apply compression if enabled
+        if use_compression:
+            compressed_states = [self.compress_model(state, compression_ratio) for state in client_states]
+            client_states = compressed_states
+            
         aggregated_state = {}
         for key in client_states[0].keys():
+            # Skip non-tensor values
+            if not isinstance(client_states[0][key], torch.Tensor):
+                aggregated_state[key] = client_states[0][key]
+                continue
+                
             # Stack parameters from all clients
-            stacked_params = torch.stack([states[key] for states in client_states])
-            
-            # Add noise for differential privacy if enabled
-            if self.privacy_enabled and self.noise_scale > 0:
-                noisy_params = torch.stack([
-                    self.add_differential_privacy_noise(states[key], self.noise_scale)
-                    for states in client_states
-                ])
-                # Average the parameters across clients
-                aggregated_state[key] = noisy_params.mean(0)
-            else:
-                # Average the parameters across clients without noise
-                aggregated_state[key] = stacked_params.mean(0)
+            try:
+                stacked_params = torch.stack([states[key] for states in client_states])
+                
+                # Add noise for differential privacy if enabled
+                if self.privacy_enabled and self.noise_scale > 0:
+                    noisy_params = torch.stack([
+                        self.add_differential_privacy_noise(states[key], self.noise_scale)
+                        for states in client_states
+                    ])
+                    # Average the parameters across clients
+                    aggregated_state[key] = noisy_params.mean(0)
+                else:
+                    # Average the parameters across clients without noise
+                    aggregated_state[key] = stacked_params.mean(0)
+            except:
+                # Fallback if stacking fails (e.g., because of differing shapes)
+                aggregated_state[key] = client_states[0][key]
         
         return aggregated_state
 
-    def train_round(self, train_data, val_data, test_data, local_epochs):
+    def train_round(self, train_data, val_data, test_data, local_epochs, client_fraction=1.0):
         """
         Perform one round of federated learning
         
@@ -270,24 +352,33 @@ class FederatedLearning:
             val_data (Dataset): The validation dataset
             test_data (Dataset): The test dataset
             local_epochs (int): Number of local training epochs
+            client_fraction (float): Fraction of clients to participate in this round
             
         Returns:
             tuple: (accuracy, privacy_loss) after the round
         """
         verbose = self.config.get('verbose', True)
         
-        # Distribute data among clients
-        client_datasets = self.distribute_data(train_data)
+        # Get non-IID settings
+        use_non_iid = self.config.get('non_iid', {}).get('enabled', False)
+        alpha = self.config.get('non_iid', {}).get('alpha', 0.5)
+        
+        # Distribute data among clients, potentially non-IID
+        client_datasets = self.distribute_data(train_data, use_non_iid=use_non_iid, alpha=alpha)
+        
+        # Select a subset of clients to participate in this round
+        selected_clients = self.select_clients(fraction=client_fraction)
         
         if verbose:
-            print(f"Starting federated learning round with {self.num_clients} clients")
+            print(f"Starting federated learning round with {len(selected_clients)}/{self.num_clients} clients")
+            print(f"Selected clients: {selected_clients}")
             print(f"Local epochs per client: {local_epochs}")
 
-        # Train clients in parallel (simulated sequential here)
+        # Train selected clients in parallel (simulated sequential here)
         client_states = []
-        for client_id in range(self.num_clients):
+        for idx, client_id in enumerate(selected_clients):
             if verbose:
-                print(f"Training client {client_id+1}/{self.num_clients}")
+                print(f"Training client {idx+1}/{len(selected_clients)} (ID: {client_id})")
             
             client_state = self.train_client(
                 client_id, 
@@ -297,12 +388,21 @@ class FederatedLearning:
             )
             client_states.append(client_state)
 
-        # Aggregate models with differential privacy
+        # Get compression settings
+        use_compression = self.config.get('compression', {}).get('enabled', False)
+        compression_ratio = self.config.get('compression', {}).get('ratio', 0.5)
+        
+        # Aggregate models with differential privacy and potential compression
         if verbose:
-            print("Aggregating client models" + 
-                  (" with differential privacy" if self.privacy_enabled else ""))
+            compression_msg = " with compression" if use_compression else ""
+            privacy_msg = " with differential privacy" if self.privacy_enabled else ""
+            print(f"Aggregating client models{privacy_msg}{compression_msg}")
             
-        aggregated_state = self.aggregate_models(client_states)
+        aggregated_state = self.aggregate_models(
+            client_states, 
+            use_compression=use_compression,
+            compression_ratio=compression_ratio
+        )
         self.model.load_state_dict(aggregated_state)
 
         # Evaluate global model on test data
