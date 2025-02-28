@@ -20,6 +20,7 @@ def load_mnist_data(data_dir='./data', batch_size=64, iid=True, alpha=0.5):
         Tuple of (train_data, val_data, test_data)
     """
     # Define transforms
+    from torchvision import transforms
     transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize((0.1307,), (0.3081,))
