@@ -1,4 +1,3 @@
-
 """
 Visualization module for the federated learning framework.
 Provides functions for plotting training progress and privacy metrics
@@ -12,6 +11,12 @@ from database import TrainingRound, ExperimentConfig, get_db
 from sqlalchemy import desc
 import numpy as np
 from contextlib import contextmanager
+import matplotlib.pyplot as plt
+import plotly.express as px
+import torch
+from torchvision import transforms
+import io
+from PIL import Image
 
 @contextmanager
 def get_session():
@@ -242,3 +247,83 @@ def display_experiment_comparison():
         
         if metrics_data:
             st.dataframe(pd.DataFrame(metrics_data))
+
+
+def plot_training_progress(accuracies):
+    """Plot training progress using Plotly."""
+    fig = px.line(
+        x=list(range(1, len(accuracies) + 1)),
+        y=accuracies,
+        labels={'x': 'Round', 'y': 'Accuracy (%)'},
+        title='Federated Learning Progress'
+    )
+    fig.update_layout(
+        xaxis_title="Round",
+        yaxis_title="Accuracy (%)",
+        yaxis_range=[0, 100]
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+def plot_privacy_metrics(privacy_losses):
+    """Plot privacy metrics using Plotly."""
+    fig = px.line(
+        x=list(range(1, len(privacy_losses) + 1)),
+        y=privacy_losses,
+        labels={'x': 'Round', 'y': 'Privacy Loss (ε)'},
+        title='Privacy Budget Usage'
+    )
+    fig.update_layout(
+        xaxis_title="Round",
+        yaxis_title="Privacy Loss (ε)"
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+def display_sample_predictions(model, test_data, num_samples=5):
+    """
+    Display sample predictions from the test set in a grid format.
+
+    Args:
+        model: The trained model
+        test_data: Test dataset
+        num_samples: Number of samples to display
+    """
+    # Set model to evaluation mode
+    model.eval()
+    device = next(model.parameters()).device
+
+    # Get samples from test data
+    dataloader = torch.utils.data.DataLoader(test_data, batch_size=num_samples, shuffle=True)
+    images, labels = next(iter(dataloader))
+
+    # Make predictions
+    with torch.no_grad():
+        images = images.to(device)
+        outputs = model(images)
+        _, predicted = torch.max(outputs, 1)
+
+    # Create a grid with Plotly
+    cols = min(5, num_samples)  # Max 5 columns
+    rows = (num_samples + cols - 1) // cols
+
+    fig = plt.figure(figsize=(2*cols, 2*rows))
+
+    for i in range(num_samples):
+        # Get the current image
+        image = images[i].cpu().numpy().squeeze()
+        true_label = labels[i].item()
+        pred_label = predicted[i].item()
+
+        # Add subplot
+        ax = fig.add_subplot(rows, cols, i+1)
+        ax.imshow(image, cmap='gray')
+        ax.set_title(f'True: {true_label}\nPred: {pred_label}')
+        ax.axis('off')
+
+    plt.tight_layout()
+
+    # Display in Streamlit
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png')
+    buf.seek(0)
+    st.image(buf, use_column_width=True)
+    plt.close(fig)

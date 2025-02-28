@@ -1,19 +1,52 @@
+
 """
-Differential privacy utilities module.
-Provides functions for adding Gaussian noise and computing sensitivities
-to ensure privacy preservation in the federated learning process.
+Differential privacy utilities for federated learning.
 """
 
 import torch
+import numpy as np
 
 def add_noise(tensor, noise_scale):
-    """Add Gaussian noise to tensor for differential privacy"""
-    if noise_scale == 0:
+    """
+    Add Gaussian noise to a tensor for differential privacy.
+    
+    Args:
+        tensor: PyTorch tensor to add noise to
+        noise_scale: Standard deviation of Gaussian noise
+        
+    Returns:
+        Tensor with added noise
+    """
+    if noise_scale <= 0:
         return tensor
     
+    # Generate noise with same shape as tensor
     noise = torch.randn_like(tensor) * noise_scale
+    
+    # Add noise to tensor
     return tensor + noise
 
-def compute_sensitivity(tensor):
-    """Compute L2 sensitivity of tensor"""
-    return torch.norm(tensor)
+def calculate_privacy_loss(noise_scale, num_selected, total_clients):
+    """
+    Calculate the privacy loss (epsilon) for a federated round.
+    
+    Args:
+        noise_scale: Standard deviation of Gaussian noise
+        num_selected: Number of clients selected in this round
+        total_clients: Total number of clients
+        
+    Returns:
+        Privacy loss (epsilon)
+    """
+    # Simple privacy accounting model - in practice more sophisticated
+    # accounting methods like RDP or zCDP would be used
+    if noise_scale <= 0:
+        return float('inf')
+    
+    # Participation ratio affects privacy loss
+    participation_ratio = num_selected / total_clients
+    
+    # More noise means less privacy loss
+    privacy_loss = participation_ratio / (noise_scale ** 2)
+    
+    return privacy_loss

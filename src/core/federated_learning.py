@@ -1,528 +1,321 @@
 """
-Core implementation of the Federated Learning system.
-Handles client model distribution, training, and aggregation with privacy preservation.
-Implements the FedAvg algorithm with differential privacy guarantees.
+Core implementation of federated learning algorithms.
+Handles client creation, model aggregation, and differential privacy.
 """
 
 import torch
 import numpy as np
-from torch.utils.data import DataLoader, Subset
+import copy
+import sys
+from pathlib import Path
 
-# Import utility functions and factories
-from federated_utils import (
-    OptimizerFactory,
-    SchedulerFactory,
-    LossFactory,
-    apply_lr_policy,
-    DefaultFederatedConfig
-)
+# Add parent directory to path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from privacy.differential_privacy import add_noise, calculate_privacy_loss
 
 class FederatedLearning:
     """
-    Federated Learning class to manage distributed model training with differential privacy.
-
-    Args:
-        model (torch.nn.Module): The global model to be trained.
-        num_clients (int): The number of clients participating in federated learning.
-        config (dict, optional): Configuration dictionary. If None, default config is used.
+    Implements federated learning with privacy-preserving mechanisms.
     """
+
     def __init__(self, model, num_clients, config=None):
-        self.model = model
+        """
+        Initialize the federated learning system.
+
+        Args:
+            model: PyTorch model to be trained
+            num_clients: Number of clients/participants
+            config: Dictionary with configuration parameters
+        """
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        # Default configuration
+        default_config = {
+            'privacy': {
+                'enabled': True,
+                'noise_scale': 0.1,
+                'privacy_budget': 1.0
+            },
+            'compression': {
+                'enabled': False,
+                'ratio': 0.5
+            },
+            'non_iid': {
+                'enabled': False,
+                'alpha': 0.5
+            },
+            'batch_size': 64,
+            'device': self.device,
+            'verbose': True
+        }
+
+        # Update with user config
+        self.config = default_config
+        if config:
+            for category in config:
+                if isinstance(config[category], dict) and category in self.config:
+                    # Merge dict configs
+                    self.config[category].update(config[category])
+                else:
+                    # Set non-dict configs directly
+                    self.config[category] = config[category]
+
+        # Initialize model and clients
+        self.global_model = model.to(self.device)
         self.num_clients = num_clients
+        self.clients = self._create_clients()
 
-        # Load config (use default if none provided)
-        self.config = DefaultFederatedConfig.get_config() if config is None else config
+        # Initialize privacy tracking
+        self.total_privacy_loss = 0.0
+        self.privacy_losses_per_round = []
 
-        # Set random seed for reproducibility
-        if 'seed' in self.config:
-            torch.manual_seed(self.config['seed'])
-            np.random.seed(self.config['seed'])
+    def _create_clients(self):
+        """Create client models by copying the global model."""
+        return [copy.deepcopy(self.global_model) for _ in range(self.num_clients)]
 
-        # Create client models
-        self.client_models = [type(model)() for _ in range(num_clients)]
+    def _split_data_for_clients(self, train_data, iid=True, alpha=0.5):
+        """
+        Split the training data among clients.
 
-        # Set up device
-        self.device = torch.device(self.config['device'])
-        self.model = self.model.to(self.device)
+        Args:
+            train_data: The training dataset
+            iid: If True, data is split IID; if False, non-IID split
+            alpha: Dirichlet alpha parameter for non-IID split
 
-        # Extract privacy settings
-        privacy_config = self.config.get('privacy', {})
-        self.privacy_enabled = privacy_config.get('enabled', True)
-        self.noise_scale = privacy_config.get('noise_scale', 0.01)
-        self.privacy_budget = privacy_config.get('privacy_budget', 1.0)
+        Returns:
+            List of datasets, one for each client
+        """
+        num_samples = len(train_data)
+        indices = list(range(num_samples))
 
-        # Initialize criterion
-        loss_type = self.config.get('loss', 'cross_entropy')
-        loss_params = self.config.get('loss_params', {})
-        self.criterion = LossFactory.create(loss_type, **loss_params)
+        # IID split: simple random division
+        if iid:
+            np.random.shuffle(indices)
+            client_indices = np.array_split(indices, self.num_clients)
+        # Non-IID split: Dirichlet distribution
+        else:
+            labels = np.array([train_data[i][1] for i in range(num_samples)])
+            unique_labels = np.unique(labels)
+            client_indices = [[] for _ in range(self.num_clients)]
 
-        # Initialize the global optimizer
-        # Use default lr_policy if not provided
-        if 'lr_policy' not in self.config:
-            self.config['lr_policy'] = {1: {'lr': 0.01}}
-            
-        lr = self.config['lr_policy'][min(self.config['lr_policy'].keys())]['lr']
-        optimizer_type = self.config.get('optimizer', 'sgd')
-        optimizer_params = self.config.get('optimizer_params', {})
-        self.optimizer = OptimizerFactory.create(
-            self.model.parameters(),
-            optimizer_type,
-            lr=lr,
-            weight_decay=self.config.get('weight_decay', 1e-2),
-            **optimizer_params
+            for label in unique_labels:
+                label_indices = np.where(labels == label)[0]
+                np.random.shuffle(label_indices)
+
+                # Dirichlet distribution for label assignment
+                proportions = np.random.dirichlet(np.repeat(alpha, self.num_clients))
+                proportions = np.array([p*(len(label_indices)//self.num_clients) for p in proportions])
+                proportions = np.round(proportions).astype(int)
+                proportions[0] += len(label_indices) - np.sum(proportions)
+
+                # Distribute indices according to proportions
+                start_idx = 0
+                for client_idx, prop in enumerate(proportions):
+                    client_indices[client_idx].extend(label_indices[start_idx:start_idx+prop].tolist())
+                    start_idx += prop
+
+        # Create subdatasets for clients
+        client_datasets = []
+        for indices in client_indices:
+            client_datasets.append(torch.utils.data.Subset(train_data, indices))
+
+        return client_datasets
+
+    def _train_client(self, client_model, client_data, epochs=1):
+        """
+        Train a client model on its local data.
+
+        Args:
+            client_model: The client's model
+            client_data: The client's dataset
+            epochs: Number of training epochs
+
+        Returns:
+            The updated client model and number of samples trained on
+        """
+        # Set up training
+        client_model.train()
+        criterion = torch.nn.CrossEntropyLoss()
+        optimizer = torch.optim.SGD(
+            client_model.parameters(), 
+            lr=0.01, 
+            momentum=0.9
         )
 
-    def distribute_data(self, dataset, use_non_iid=False, alpha=0.5):
-        """
-        Split dataset among clients, either IID or non-IID
-
-        Args:
-            dataset (torch.utils.data.Dataset): The dataset to distribute
-            use_non_iid (bool): Whether to use non-IID distribution
-            alpha (float): Dirichlet concentration parameter for non-IID distribution
-                           Lower values create more skewed distributions
-
-        Returns:
-            list: List of datasets, one for each client
-        """
-        if use_non_iid:
-            from data_handler import distribute_data_non_iid
-            return distribute_data_non_iid(dataset, self.num_clients, alpha=alpha)
-        else:
-            # Original IID distribution
-            total_size = len(dataset)
-            indices = np.random.permutation(total_size)
-            client_data = np.array_split(indices, self.num_clients)
-            return [Subset(dataset, indices) for indices in client_data]
-
-    def train_client(self, client_id, client_data, val_data, local_epochs):
-        """
-        Train a client model
-
-        Args:
-            client_id (int): The ID of the client being trained
-            client_data (Dataset): The client's training data
-            val_data (Dataset): Validation dataset
-            local_epochs (int): Number of local training epochs
-
-        Returns:
-            dict: The trained model's state dictionary
-        """
-        verbose = self.config.get('verbose', True)
-
-        # Set up the client model
-        model = self.client_models[client_id]
-        model.load_state_dict(self.model.state_dict())
-        model = model.to(self.device)
-
-        # Setup data loaders
-        train_loader = DataLoader(
+        # Create data loader
+        train_loader = torch.utils.data.DataLoader(
             client_data, 
             batch_size=self.config['batch_size'], 
             shuffle=True
         )
-        val_loader = DataLoader(
-            val_data,
-            batch_size=self.config['batch_size']
-        )
 
-        # Get initial learning rate
-        lr_policy = self.config['lr_policy']
-        initial_lr = lr_policy[min(lr_policy.keys())]['lr']
+        # Train for specified epochs
+        for epoch in range(epochs):
+            for inputs, labels in train_loader:
+                inputs, labels = inputs.to(self.device), labels.to(self.device)
 
-        # Create optimizer
-        optimizer_type = self.config.get('optimizer', 'sgd')
-        optimizer_params = self.config.get('optimizer_params', {})
-        optimizer = OptimizerFactory.create(
-            model.parameters(),
-            optimizer_type,
-            lr=initial_lr,
-            weight_decay=self.config.get('weight_decay', 1e-2),
-            **optimizer_params
-        )
-
-        # Create scheduler if requested
-        scheduler_type = self.config.get('lr_scheduler', 'policy')
-        scheduler = None
-
-        if scheduler_type != 'policy' and scheduler_type != 'none':
-            scheduler_params = self.config.get('lr_scheduler_params', {}).get(scheduler_type, {})
-            scheduler = SchedulerFactory.create(optimizer, scheduler_type, scheduler_params)
-
-        # Train the model
-        model.train()
-
-        for epoch in range(1, local_epochs + 1):
-            # For manual policy-based learning rate adjustment
-            if scheduler_type == 'policy':
-                current_lr = apply_lr_policy(optimizer, epoch, lr_policy)
-                if verbose:
-                    print(f"Client {client_id}, Epoch {epoch}, LR: {current_lr:.6f}")
-
-            # Training loop
-            train_loss = 0.0
-            correct = 0
-            total = 0
-
-            for batch_idx, (data, target) in enumerate(train_loader):
-                data, target = data.to(self.device), target.to(self.device)
-
+                # Forward pass
                 optimizer.zero_grad()
-                output = model(data)
-                loss = self.criterion(output, target)
+                outputs = client_model(inputs)
+                loss = criterion(outputs, labels)
+
+                # Backward pass
                 loss.backward()
                 optimizer.step()
 
-                train_loss += loss.item()
-                _, predicted = output.max(1)
-                total += target.size(0)
-                # Get the indices of the highest values in the target one-hot encoding
-                target_indices = torch.argmax(target, dim=1)
-                correct += predicted.eq(target_indices).sum().item()
+        return client_model, len(client_data)
 
-                # Print progress periodically
-                if verbose and batch_idx % 10 == 0:
-                    print(f"Client {client_id}, Epoch {epoch}, Batch {batch_idx}, "
-                          f"Loss: {loss.item():.4f}, "
-                          f"Acc: {100. * correct / total:.2f}%")
-
-            # Step the scheduler after each epoch if using a PyTorch scheduler
-            if scheduler is not None:
-                if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
-                    # For ReduceLROnPlateau, we need validation loss
-                    val_loss, _ = self.evaluate_client(model, val_loader)
-                    scheduler.step(val_loss)
-                else:
-                    scheduler.step()
-
-                current_lr = optimizer.param_groups[0]['lr']
-                if verbose:
-                    print(f"Client {client_id}, Epoch {epoch}, LR: {current_lr:.6f}")
-
-            # Validation after each epoch
-            val_loss, val_acc = self.evaluate_client(model, val_loader)
-
-            if verbose:
-                train_acc = 100. * correct / total
-                print(f"Client {client_id}, Epoch {epoch}, "
-                      f"Train Loss: {train_loss / len(train_loader):.4f}, "
-                      f"Train Acc: {train_acc:.2f}%, "
-                      f"Val Loss: {val_loss:.4f}, "
-                      f"Val Acc: {val_acc:.2f}%")
-
-        # Return the trained model's state dictionary
-        return model.state_dict()
-
-    def select_clients(self, fraction=0.5, min_clients=1):
+    def _aggregate_models(self, client_models, client_sizes):
         """
-        Select a subset of clients to participate in a training round
+        Aggregate client models into the global model.
 
         Args:
-            fraction (float): Fraction of clients to select (between 0 and 1)
-            min_clients (int): Minimum number of clients to select
+            client_models: List of client models
+            client_sizes: Number of samples per client
 
         Returns:
-            list: List of selected client indices
+            The aggregated global model
         """
-        num_to_select = max(min_clients, int(self.num_clients * fraction))
-        return np.random.choice(range(self.num_clients), size=num_to_select, replace=False).tolist()
+        # Create a copy of the current global model
+        global_model = copy.deepcopy(self.global_model)
 
+        # Get total number of samples across all clients
+        total_size = sum(client_sizes)
 
-    def compress_model(self, state_dict, compression_ratio=0.1):
+        # Initialize global parameters with zeros
+        for param in global_model.parameters():
+            param.data.zero_()
+
+        # Weighted aggregation of client models
+        for i, (client_model, size) in enumerate(zip(client_models, client_sizes)):
+            # Calculate weight for this client (proportion of data)
+            weight = size / total_size
+
+            # Apply differential privacy if enabled
+            if self.config['privacy']['enabled']:
+                noise_scale = self.config['privacy']['noise_scale']
+                if noise_scale > 0:
+                    # Add noise to client model parameters
+                    for param in client_model.parameters():
+                        param.data = add_noise(param.data, noise_scale)
+
+            # Apply model compression if enabled
+            if self.config['compression']['enabled']:
+                compression_ratio = self.config['compression']['ratio']
+                if compression_ratio < 1.0:
+                    for param in client_model.parameters():
+                        # Keep only top k% of parameters by magnitude
+                        flat_param = param.data.flatten()
+                        k = int(flat_param.numel() * compression_ratio)
+                        values, indices = torch.topk(torch.abs(flat_param), k)
+                        mask = torch.zeros_like(flat_param)
+                        mask[indices] = 1
+                        param.data = (param.data * mask.view(param.data.shape))
+
+            # Add weighted client parameters to global parameters
+            for global_param, client_param in zip(global_model.parameters(), client_model.parameters()):
+                global_param.data += weight * client_param.data
+
+        return global_model
+
+    def train_round(self, train_data, val_data, test_data, local_epochs=1, client_fraction=1.0):
         """
-        Compress model weights by keeping only the largest magnitude values
+        Perform one round of federated learning.
 
         Args:
-            state_dict (dict): Model state dictionary
-            compression_ratio (float): Fraction of weights to keep (between 0 and 1)
+            train_data: Training dataset
+            val_data: Validation dataset
+            test_data: Test dataset
+            local_epochs: Number of epochs for local client training
+            client_fraction: Fraction of clients to include in this round
 
         Returns:
-            dict: Compressed model state dictionary
+            Tuple of (round_accuracy, privacy_loss)
         """
-        compressed_state = {}
+        # Split data among clients
+        client_datasets = self._split_data_for_clients(
+            train_data, 
+            iid=not self.config['non_iid']['enabled'],
+            alpha=self.config['non_iid']['alpha']
+        )
 
-        for key, tensor in state_dict.items():
-            # Skip non-tensor values
-            if not isinstance(tensor, torch.Tensor) or 'running' in key or 'num_batches' in key:
-                compressed_state[key] = tensor
-                continue
+        # Select random subset of clients according to fraction
+        num_selected = max(1, int(self.num_clients * client_fraction))
+        selected_indices = np.random.choice(self.num_clients, num_selected, replace=False)
 
-            # Get the flat absolute values and find threshold
-            flat_tensor = tensor.abs().flatten()
-            if flat_tensor.numel() > 0:  # Check if tensor is not empty
-                num_values_to_keep = max(1, int(compression_ratio * flat_tensor.numel()))
-                # Get the threshold value for the top k elements
-                if num_values_to_keep < flat_tensor.numel():
-                    threshold = torch.kthvalue(flat_tensor, flat_tensor.numel() - num_values_to_keep + 1)[0]
-                else:
-                    threshold = 0.0
+        # Train selected clients
+        selected_models = []
+        selected_sizes = []
 
-                # Create a mask for values to keep
-                mask = tensor.abs() >= threshold
+        for idx in selected_indices:
+            # Create a fresh copy of the global model for this client
+            client_model = copy.deepcopy(self.global_model)
 
-                # Apply the mask, zeroing out small values
-                pruned_tensor = tensor.clone()
-                pruned_tensor[~mask] = 0
-
-                compressed_state[key] = pruned_tensor
-            else:
-                compressed_state[key] = tensor
-
-        return compressed_state
-
-    def train_round(self, train_data, val_data, test_data, local_epochs, client_fraction=1.0):
-        """
-        Perform one round of federated learning
-
-        Args:
-            train_data (Dataset): The training dataset
-            val_data (Dataset): The validation dataset
-            test_data (Dataset): The test dataset
-            local_epochs (int): Number of local training epochs
-            client_fraction (float): Fraction of clients to participate in this round
-
-        Returns:
-            tuple: (accuracy, privacy_loss) after the round
-        """
-        verbose = self.config.get('verbose', True)
-
-        # Get non-IID settings
-        use_non_iid = self.config.get('non_iid', {}).get('enabled', False)
-        alpha = self.config.get('non_iid', {}).get('alpha', 0.5)
-
-        # Distribute data among clients, potentially non-IID
-        client_datasets = self.distribute_data(train_data, use_non_iid=use_non_iid, alpha=alpha)
-
-        # Select a subset of clients to participate in this round
-        selected_clients = self.select_clients(fraction=client_fraction)
-
-        if verbose:
-            print(f"Starting federated learning round with {len(selected_clients)}/{self.num_clients} clients")
-            print(f"Selected clients: {selected_clients}")
-            print(f"Local epochs per client: {local_epochs}")
-
-        # Train selected clients in parallel (simulated sequential here)
-        client_states = []
-        for idx, client_id in enumerate(selected_clients):
-            if verbose:
-                print(f"Training client {idx+1}/{len(selected_clients)} (ID: {client_id})")
-
-            client_state = self.train_client(
-                client_id, 
-                client_datasets[client_id],
-                val_data,
+            # Train the client and get updated model
+            updated_model, num_samples = self._train_client(
+                client_model, 
+                client_datasets[idx],
                 local_epochs
             )
-            client_states.append(client_state)
 
-        # Get compression settings
-        use_compression = self.config.get('compression', {}).get('enabled', False)
-        compression_ratio = self.config.get('compression', {}).get('ratio', 0.5)
+            selected_models.append(updated_model)
+            selected_sizes.append(num_samples)
 
-        # Aggregate models with differential privacy and potential compression
-        if verbose:
-            compression_msg = " with compression" if use_compression else ""
-            privacy_msg = " with differential privacy" if self.privacy_enabled else ""
-            print(f"Aggregating client models{privacy_msg}{compression_msg}")
+        # Calculate privacy loss for this round if enabled
+        if self.config['privacy']['enabled']:
+            round_privacy_loss = calculate_privacy_loss(
+                self.config['privacy']['noise_scale'],
+                num_selected,
+                self.num_clients
+            )
+            self.total_privacy_loss += round_privacy_loss
+            self.privacy_losses_per_round.append(round_privacy_loss)
+        else:
+            round_privacy_loss = 0.0
+            self.privacy_losses_per_round.append(0.0)
 
-        aggregated_state = self.aggregate_models(
-            client_states, 
-            use_compression=use_compression,
-            compression_ratio=compression_ratio
-        )
-        self.model.load_state_dict(aggregated_state)
+        # Check if privacy budget is exceeded
+        if (self.config['privacy']['enabled'] and 
+            self.total_privacy_loss > self.config['privacy']['privacy_budget']):
+            print(f"Warning: Privacy budget ({self.config['privacy']['privacy_budget']}) exceeded: {self.total_privacy_loss}")
 
-        # Evaluate global model on test data
-        if verbose:
-            print("Evaluating global model on test data")
+        # Aggregate models
+        self.global_model = self._aggregate_models(selected_models, selected_sizes)
 
+        # Evaluate
         accuracy = self.evaluate(test_data)
 
-        # Calculate privacy loss if privacy is enabled
-        privacy_loss = 0
-        if self.privacy_enabled:
-            privacy_loss = self.calculate_privacy_loss(
-                self.privacy_budget, 
-                self.noise_scale,
-                num_queries=len(client_states)
-            )
-
-        if verbose:
-            print(f"Global model accuracy: {accuracy:.2f}%")
-            if self.privacy_enabled:
-                print(f"Privacy loss: {privacy_loss:.4f}")
-
-        return accuracy, privacy_loss
+        return accuracy, round_privacy_loss
 
     def evaluate(self, test_data):
         """
-        Evaluate global model on test data
+        Evaluate the global model on test data.
 
         Args:
-            test_data (Dataset): The test dataset
+            test_data: Test dataset
 
         Returns:
-            float: Accuracy of the model on the test data
+            Accuracy percentage
         """
-        self.model.eval()
-        self.model = self.model.to(self.device)
-
+        # Set up evaluation
+        self.global_model.eval()
         correct = 0
         total = 0
-        test_loss = 0
+        test_loader = torch.utils.data.DataLoader(
+            test_data, 
+            batch_size=self.config['batch_size'], 
+            shuffle=False
+        )
 
-        dataloader = DataLoader(test_data, batch_size=self.config['batch_size'])
-
+        # Evaluate model
         with torch.no_grad():
-            for data, target in dataloader:
-                data, target = data.to(self.device), target.to(self.device)
+            for inputs, labels in test_loader:
+                inputs, labels = inputs.to(self.device), labels.to(self.device)
+                outputs = self.global_model(inputs)
+                _, predicted = torch.max(outputs, 1)
+                total += labels.size(0)
+                correct += (predicted == labels).sum().item()
 
-                output = self.model(data)
-                loss = self.criterion(output, target)
-
-                test_loss += loss.item()
-                _, predicted = output.max(1)
-                total += target.size(0)
-                # Get the indices of the highest values in the target one-hot encoding
-                target_indices = torch.argmax(target, dim=1)
-                correct += predicted.eq(target_indices).sum().item()
-
-        test_loss = test_loss / len(dataloader)
-        accuracy = 100. * correct / total
-
-        if self.config.get('verbose', True):
-            print(f"Test Loss: {test_loss:.4f}")
-            print(f"Test Accuracy: {accuracy:.2f}%")
-
+        accuracy = 100 * correct / total
         return accuracy
-
-
-
-    def add_differential_privacy_noise(self, tensor, noise_scale):
-        """
-        Add Gaussian noise to a tensor for differential privacy
-
-        Args:
-            tensor (torch.Tensor): The tensor to add noise to
-            noise_scale (float): The scale of the noise
-
-        Returns:
-            torch.Tensor: The noisy tensor
-        """
-        from differential_privacy import add_noise
-
-        if noise_scale <= 0:
-            return tensor
-
-        # Use the specialized add_noise function from differential_privacy module
-        return add_noise(tensor, noise_scale)
-
-
-    def calculate_privacy_loss(self, privacy_budget, noise_scale, num_queries=1):
-        """
-        Calculate privacy loss for a differentially private mechanism
-
-        Args:
-            privacy_budget (float): The privacy budget (epsilon)
-            noise_scale (float): The noise scale (sigma)
-            num_queries (int): Number of queries made
-
-        Returns:
-            float: The privacy loss
-        """
-        import numpy as np
-
-        if noise_scale <= 0:
-            return float('inf')
-
-        # This is a simple privacy loss calculation model
-        # Real-world applications might use more sophisticated accounting methods
-        # such as Moments Accountant or Renyi Differential Privacy
-
-        # For Gaussian mechanism, privacy loss can be approximated as:
-        # ε ≈ num_queries * (privacy_budget * (1 - exp(-1/noise_scale)))
-
-        privacy_loss = num_queries * (privacy_budget * (1 - np.exp(-1/noise_scale)))
-
-        return privacy_loss
-
-    def evaluate_client(self, model, data_loader):
-        """
-        Evaluate a client model on the validation data
-
-        Args:
-            model (torch.nn.Module): The model to evaluate
-            data_loader (DataLoader): The data loader for evaluation
-
-        Returns:
-            tuple: (loss, accuracy)
-        """
-        model.eval()
-        val_loss = 0
-        correct = 0
-        total = 0
-
-        with torch.no_grad():
-            for data, target in data_loader:
-                data, target = data.to(self.device), target.to(self.device)
-
-                output = model(data)
-                loss = self.criterion(output, target)
-
-                val_loss += loss.item()
-                _, predicted = output.max(1)
-                total += target.size(0)
-                # Get the indices of the highest values in the target one-hot encoding
-                target_indices = torch.argmax(target, dim=1)
-                correct += predicted.eq(target_indices).sum().item()
-
-        val_loss = val_loss / len(data_loader)
-        val_acc = 100. * correct / total
-
-        return val_loss, val_acc
-
-    def aggregate_models(self, client_states, use_compression=False, compression_ratio=0.1):
-        """
-        Aggregate client models using FedAvg with differential privacy
-
-        Args:
-            client_states (list): List of client model state dictionaries
-            use_compression (bool): Whether to use model compression
-            compression_ratio (float): Fraction of weights to keep if using compression
-
-        Returns:
-            dict: Aggregated model state dictionary
-        """
-        # Apply compression if enabled
-        if use_compression:
-            compressed_states = [self.compress_model(state, compression_ratio) for state in client_states]
-            client_states = compressed_states
-
-        aggregated_state = {}
-        for key in client_states[0].keys():
-            # Skip non-tensor values
-            if not isinstance(client_states[0][key], torch.Tensor):
-                aggregated_state[key] = client_states[0][key]
-                continue
-
-            # Stack parameters from all clients
-            try:
-                stacked_params = torch.stack([states[key] for states in client_states])
-
-                # Add noise for differential privacy if enabled
-                if self.privacy_enabled and self.noise_scale > 0:
-                    noisy_params = torch.stack([
-                        self.add_differential_privacy_noise(states[key], self.noise_scale)
-                        for states in client_states
-                    ])
-                    # Average the parameters across clients
-                    aggregated_state[key] = noisy_params.mean(0)
-                else:
-                    # Average the parameters across clients without noise
-                    aggregated_state[key] = stacked_params.mean(0)
-            except:
-                # Fallback if stacking fails (e.g., because of differing shapes)
-                aggregated_state[key] = client_states[0][key]
-
-        return aggregated_state
