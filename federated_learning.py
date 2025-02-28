@@ -205,6 +205,9 @@ class FederatedLearning:
                       f"Val Loss: {val_loss:.4f}, "
                       f"Val Acc: {val_acc:.2f}%")
 
+        # Return the trained model's state dictionary
+        return model.state_dict()
+
     def select_clients(self, fraction=0.5, min_clients=1):
         """
         Select a subset of clients to participate in a training round
@@ -400,10 +403,10 @@ class FederatedLearning:
             torch.Tensor: The noisy tensor
         """
         from differential_privacy import add_noise
-        
+
         if noise_scale <= 0:
             return tensor
-            
+
         # Use the specialized add_noise function from differential_privacy module
         return add_noise(tensor, noise_scale)
 

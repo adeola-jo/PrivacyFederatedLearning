@@ -96,6 +96,64 @@ feature_status = st.empty()
 feature_text = []
 if use_non_iid:
     feature_text.append(f"✅ Non-IID Data (α={alpha})")
+    
+    # Add visualization of non-IID distribution
+    if st.checkbox("Show Client Data Distribution"):
+        st.write("Preparing visualization of data distribution across clients...")
+        # Distribute data among clients
+        client_datasets = fl_system.distribute_data(
+            st.session_state.train_data, 
+            use_non_iid=True, 
+            alpha=alpha
+        )
+        
+        # Collect label distributions for visualization
+        import matplotlib.pyplot as plt
+        import numpy as np
+        
+        fig, ax = plt.subplots(figsize=(10, 6))
+        client_distributions = []
+        
+        for i, dataset in enumerate(client_datasets):
+            # Get labels for this client's data
+            if hasattr(dataset, 'dataset') and hasattr(dataset.dataset, 'tensors'):
+                indices = dataset.indices
+                labels = torch.argmax(dataset.dataset.tensors[1][indices], dim=1).numpy()
+            else:
+                # Handle other dataset types
+                try:
+                    indices = dataset.indices
+                    labels = []
+                    for idx in indices:
+                        if hasattr(dataset.dataset, 'targets'):
+                            if torch.is_tensor(dataset.dataset.targets):
+                                labels.append(dataset.dataset.targets[idx].item())
+                            else:
+                                labels.append(dataset.dataset.targets[idx])
+                        else:
+                            labels.append(torch.argmax(dataset.dataset.tensors[1][idx]).item())
+                    labels = np.array(labels)
+                except:
+                    st.warning(f"Could not extract labels for client {i}")
+                    continue
+            
+            # Count occurrences of each label
+            unique, counts = np.unique(labels, return_counts=True)
+            distribution = np.zeros(10)  # Assuming 10 classes for MNIST
+            distribution[unique] = counts / counts.sum()
+            client_distributions.append(distribution)
+            
+            # Plot the distribution
+            ax.bar(np.arange(10) + i * 0.1, distribution, width=0.1, alpha=0.7, 
+                   label=f'Client {i+1}')
+        
+        ax.set_xlabel('Class Label')
+        ax.set_ylabel('Proportion')
+        ax.set_title('Data Distribution Across Clients')
+        ax.set_xticks(np.arange(10))
+        ax.legend()
+        
+        st.pyplot(fig)
 else:
     feature_text.append("❌ Non-IID Data (using IID)")
 
@@ -106,6 +164,58 @@ else:
 
 if use_compression:
     feature_text.append(f"✅ Model Compression (ratio={compression_ratio})")
+    
+    # Add visualization of model compression effect
+    if st.checkbox("Show Model Compression Impact"):
+        st.write("Visualizing model compression impact...")
+        
+        # Create a sample model and compress it
+        sample_model = SimpleConvNet()
+        state_dict = sample_model.state_dict()
+        
+        # Calculate original model size
+        original_size = sum(param.nelement() * param.element_size() 
+                           for param in sample_model.parameters()) / 1024
+        
+        # Compress the model
+        compressed_state = fl_system.compress_model(state_dict, compression_ratio)
+        
+        # Calculate number of non-zero parameters
+        original_nonzeros = sum(torch.count_nonzero(tensor).item() 
+                               for name, tensor in state_dict.items() 
+                               if isinstance(tensor, torch.Tensor))
+        
+        compressed_nonzeros = sum(torch.count_nonzero(tensor).item() 
+                                 for name, tensor in compressed_state.items() 
+                                 if isinstance(tensor, torch.Tensor))
+        
+        # Create comparison metrics
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Original Model Parameters", f"{original_nonzeros:,}")
+        with col2:
+            st.metric("After Compression", f"{compressed_nonzeros:,}", 
+                     delta=f"{-100 * (1 - compressed_nonzeros/original_nonzeros):.1f}%")
+            
+        # Show size comparison bar chart
+        import matplotlib.pyplot as plt
+        fig, ax = plt.subplots(figsize=(8, 4))
+        bars = ax.bar(['Original', 'Compressed'], 
+                      [original_nonzeros, compressed_nonzeros],
+                      color=['royalblue', 'limegreen'])
+        ax.set_ylabel('Number of Non-Zero Parameters')
+        ax.set_title('Effect of Model Compression')
+        
+        # Add value labels on top of bars
+        for bar in bars:
+            height = bar.get_height()
+            ax.annotate(f'{height:,}',
+                        xy=(bar.get_x() + bar.get_width() / 2, height),
+                        xytext=(0, 3),  # 3 points vertical offset
+                        textcoords="offset points",
+                        ha='center', va='bottom')
+        
+        st.pyplot(fig)
 else:
     feature_text.append("❌ Model Compression")
 
