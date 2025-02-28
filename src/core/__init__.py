@@ -1,0 +1,4 @@
+
+"""
+Core federated learning functionality
+"""

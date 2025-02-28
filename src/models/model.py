@@ -5,6 +5,7 @@ Neural network model definitions for federated learning.
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from src.utils.database import get_db
 
 class SimpleConvNet(nn.Module):
     """

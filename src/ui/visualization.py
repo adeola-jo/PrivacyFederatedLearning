@@ -7,7 +7,7 @@ using Plotly and Streamlit.
 import plotly.graph_objects as go
 import streamlit as st
 import pandas as pd
-from database import TrainingRound, ExperimentConfig, get_db
+from src.utils.database import TrainingRound, ExperimentConfig, get_db
 from sqlalchemy import desc
 import numpy as np
 from contextlib import contextmanager

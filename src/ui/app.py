@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from data.data_handler import load_mnist_data
 from core.federated_learning import FederatedLearning
 from models.model import SimpleConvNet
-from ui.visualization import plot_training_progress, plot_privacy_metrics, display_sample_predictions
+from src.ui.visualization import plot_training_progress, plot_privacy_metrics, display_sample_predictions
 from privacy.differential_privacy import add_noise
 from utils.database import TrainingRound, ExperimentConfig, get_db
 from sqlalchemy.orm import Session

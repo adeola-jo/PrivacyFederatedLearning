@@ -12,7 +12,7 @@ from pathlib import Path
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from privacy.differential_privacy import add_noise, calculate_privacy_loss
+from src.privacy.differential_privacy import add_noise, calculate_privacy_loss
 
 class FederatedLearning:
     """
