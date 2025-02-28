@@ -4,16 +4,20 @@ Provides functions for plotting training progress and privacy metrics
 using Plotly and Streamlit.
 """
 
-import plotly.graph_objects as go
 import streamlit as st
 import pandas as pd
-from src.utils.database import TrainingRound, ExperimentConfig, get_db
-from sqlalchemy import desc
-import numpy as np
-from contextlib import contextmanager
-import matplotlib.pyplot as plt
 import plotly.express as px
+import matplotlib.pyplot as plt
 import torch
+import numpy as np
+from typing import List, Dict, Any, Tuple, Optional
+
+# Fix imports with relative imports
+from ..utils.database import TrainingRound, ExperimentConfig, get_db
+
+from sqlalchemy import desc
+from contextlib import contextmanager
+import plotly.graph_objects as go
 from torchvision import transforms
 import io
 from PIL import Image

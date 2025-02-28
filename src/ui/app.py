@@ -7,18 +7,17 @@ Provides interactive parameter configuration and real-time visualization of trai
 import streamlit as st
 import torch
 import numpy as np
-import os
+import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 from pathlib import Path
 
-# Import project modules
-from data.data_handler import load_mnist_data
-from core.federated_learning import FederatedLearning
-from models.model import SimpleConvNet
-from ui.visualization import plot_training_progress, plot_privacy_metrics, display_sample_predictions
-from privacy.differential_privacy import add_noise
-from utils.database import TrainingRound, ExperimentConfig, get_db
+# Fix imports with relative imports
+from ..data.data_handler import load_mnist_data
+from ..core.federated_learning import FederatedLearning
+from ..models.model import SimpleConvNet
+from ..ui.visualization import plot_training_progress, plot_privacy_metrics, display_sample_predictions
+from ..privacy.differential_privacy import add_noise
+from ..utils.database import TrainingRound, ExperimentConfig, get_db
 from sqlalchemy.orm import Session
 from contextlib import contextmanager
 
