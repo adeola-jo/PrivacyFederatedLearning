@@ -15,11 +15,28 @@ from pathlib import Path
 # Import with relative paths for direct Streamlit execution
 import sys
 import os
+import torch
+import copy
+import numpy as np
 # Add the project root to Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 # Now use the imports
 from src.data.data_handler import load_mnist_data
 from src.core.federated_learning import FederatedLearning
+
+# Define required functions that might be missing
+def add_noise(tensor, scale):
+    """Add Gaussian noise to tensor for differential privacy"""
+    return tensor + torch.randn_like(tensor) * scale
+
+def calculate_privacy_loss(noise_scale, num_selected, total_clients):
+    """Simple privacy loss calculation based on noise scale and client participation"""
+    if noise_scale == 0:
+        return float('inf')  # Infinite privacy loss when no noise
+    
+    # Basic formula based on participation rate and noise scale
+    participation_rate = num_selected / total_clients
+    return participation_rate / (noise_scale ** 2)
 from src.models.model import SimpleConvNet
 from src.ui.visualization import plot_training_progress, plot_privacy_metrics, display_sample_predictions, display_experiment_comparison
 from src.privacy.differential_privacy import add_noise
