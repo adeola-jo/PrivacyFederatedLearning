@@ -5,7 +5,7 @@ A comprehensive framework for implementing privacy-preserving federated learning
 
 <div align="center">
   <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-    <img src="docs/assets/demo1.png" alt="Configuration tab of the Federated Learning Framework" width="48%"/>
+    <img src="docs/assets/demo1.png" alt="Configuration tab of the Federated Learning Framework" width="45%"/>
     <img src="docs/assets/demo2.png" alt="Training visualization and progress monitoring" width="48%"/>
   </div>
   <p><em>User Interface: Configuration (left) and Training Visualization (right)</em></p>
