@@ -81,7 +81,7 @@ def update_privacy_metrics(fig, privacy_losses):
 
 def display_experiment_comparison():
     """Display a comparison of all experiments"""
-    st.title("Experiment Comparison")
+    # st.title("Experiment Comparison")
 
     with get_session() as db:
         # Get all experiments
@@ -106,7 +106,7 @@ def display_experiment_comparison():
         ])
 
         # Display experiment selector
-        st.subheader("Select Experiments to Compare")
+        # st.subheader("Select Experiments to Compare")
         cols = st.columns(3)
 
         with cols[0]:
