@@ -62,6 +62,16 @@ The project runs on Python 3.8+ and requires the following main dependencies:
 
 The application provides an intuitive web interface that can be accessed at `http://localhost:5000` after starting the application.
 
+### User Interface
+
+Here are screenshots of the interface:
+
+![Configuration Tab](docs/assets/config_screen.png)
+*Configuration tab of the Federated Learning Framework*
+
+![Training Tab](docs/assets/training_screen.png)
+*Training visualization and progress monitoring*
+
 ### Configuration
 
 1. Use the **Configuration** tab to set parameters:
