@@ -3,6 +3,14 @@
 
 A comprehensive framework for implementing privacy-preserving federated learning using PyTorch and Streamlit. This project demonstrates secure distributed machine learning while maintaining data privacy through differential privacy techniques.
 
+<div align="center">
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+    <img src="docs/assets/demo1.png" alt="Configuration tab of the Federated Learning Framework" width="48%"/>
+    <img src="docs/assets/demo2.png" alt="Training visualization and progress monitoring" width="48%"/>
+  </div>
+  <p><em>User Interface: Configuration (left) and Training Visualization (right)</em></p>
+</div>
+
 ## Table of Contents
 - [Overview](#overview)
 - [Features](#features)
@@ -61,16 +69,6 @@ The project runs on Python 3.8+ and requires the following main dependencies:
 ## Usage
 
 The application provides an intuitive web interface that can be accessed at `http://localhost:5000` after starting the application.
-
-### User Interface
-
-Here are screenshots of the interface:
-
-![Configuration Tab](docs/assets/demo1.png)
-*Configuration tab of the Federated Learning Framework*
-
-![Training Tab](docs/assets/demo2.png)
-*Training visualization and progress monitoring*
 
 ### Configuration
 
