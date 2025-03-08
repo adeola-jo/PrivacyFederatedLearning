@@ -66,10 +66,10 @@ The application provides an intuitive web interface that can be accessed at `htt
 
 Here are screenshots of the interface:
 
-![Configuration Tab](docs/assets/config_screen.png)
+![Configuration Tab](docs/assets/demo1.png)
 *Configuration tab of the Federated Learning Framework*
 
-![Training Tab](docs/assets/training_screen.png)
+![Training Tab](docs/assets/demo2.png)
 *Training visualization and progress monitoring*
 
 ### Configuration
